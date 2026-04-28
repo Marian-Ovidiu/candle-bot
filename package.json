@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "backtest": "npm run build && node -r dotenv/config dist/backtest/runBacktest.js",
-    "backtest:dev": "tsx -r dotenv/config src/backtest/runBacktest.ts"
+    "backtest:dev": "tsx -r dotenv/config src/backtest/runBacktest.ts",
+    "convert": "tsx convertSpikeData.ts",
+    "collect": "tsx data/collect/coinbaseCollector.ts"
   },
   "keywords": [],
   "author": "",

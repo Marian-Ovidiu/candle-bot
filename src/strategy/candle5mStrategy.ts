@@ -1,79 +1,24 @@
 import { roundTo } from '../utils/math';
-import type { CandleFeatureSnapshot, StrategyConfig, StrategyDecision } from './strategyTypes';
+import type { Candle } from '../data/candleTypes';
+import type {
+  Candle5mStrategyState,
+  Candle5mStrategyStep,
+  CandleFeatureSnapshot,
+  StrategyConfig,
+  StrategyDecision,
+} from './strategyTypes';
 
-function evaluateLong(snapshot: CandleFeatureSnapshot, config: StrategyConfig): string[] {
-  const reasons: string[] = [];
-
-  if (snapshot.breakoutUp) {
-    reasons.push('BREAKOUT_UP');
-  } else {
-    reasons.push('NO_BREAKOUT_UP');
-  }
-
-  if (snapshot.returnPct >= config.minReturnPct) {
-    reasons.push('RETURN_OK');
-  } else {
-    reasons.push('RETURN_TOO_LOW');
-  }
-
-  if (snapshot.rangePct >= config.minRangePct) {
-    reasons.push('RANGE_OK');
-  } else {
-    reasons.push('RANGE_TOO_LOW');
-  }
-
-  if (snapshot.bodyPct >= config.minBodyPct) {
-    reasons.push('BODY_OK');
-  } else {
-    reasons.push('BODY_TOO_SMALL');
-  }
-
-  if (snapshot.wickToBodyRatio <= config.maxWickToBodyRatio) {
-    reasons.push('WICK_OK');
-  } else {
-    reasons.push('WICK_TOO_HIGH');
-  }
-
-  return reasons;
+function createEmptyState(): Candle5mStrategyState {
+  return {
+    waitingForPullback: null,
+  };
 }
 
-function evaluateShort(snapshot: CandleFeatureSnapshot, config: StrategyConfig): string[] {
-  const reasons: string[] = [];
-
-  if (snapshot.breakoutDown) {
-    reasons.push('BREAKOUT_DOWN');
-  } else {
-    reasons.push('NO_BREAKOUT_DOWN');
-  }
-
-  if (snapshot.returnPct <= -config.minReturnPct) {
-    reasons.push('RETURN_OK');
-  } else {
-    reasons.push('RETURN_TOO_HIGH');
-  }
-
-  if (snapshot.rangePct >= config.minRangePct) {
-    reasons.push('RANGE_OK');
-  } else {
-    reasons.push('RANGE_TOO_LOW');
-  }
-
-  if (snapshot.bodyPct >= config.minBodyPct) {
-    reasons.push('BODY_OK');
-  } else {
-    reasons.push('BODY_TOO_SMALL');
-  }
-
-  if (snapshot.wickToBodyRatio <= config.maxWickToBodyRatio) {
-    reasons.push('WICK_OK');
-  } else {
-    reasons.push('WICK_TOO_HIGH');
-  }
-
-  return reasons;
+export function createCandle5mStrategyState(): Candle5mStrategyState {
+  return createEmptyState();
 }
 
-function longSatisfied(snapshot: CandleFeatureSnapshot, config: StrategyConfig): boolean {
+function evaluateLongSetup(snapshot: CandleFeatureSnapshot, config: StrategyConfig): boolean {
   return (
     snapshot.breakoutUp &&
     snapshot.returnPct >= config.minReturnPct &&
@@ -83,7 +28,7 @@ function longSatisfied(snapshot: CandleFeatureSnapshot, config: StrategyConfig):
   );
 }
 
-function shortSatisfied(snapshot: CandleFeatureSnapshot, config: StrategyConfig): boolean {
+function evaluateShortSetup(snapshot: CandleFeatureSnapshot, config: StrategyConfig): boolean {
   return (
     snapshot.breakoutDown &&
     snapshot.returnPct <= -config.minReturnPct &&
@@ -93,42 +38,215 @@ function shortSatisfied(snapshot: CandleFeatureSnapshot, config: StrategyConfig)
   );
 }
 
+function longSetupReasonCodes(snapshot: CandleFeatureSnapshot, config: StrategyConfig): string[] {
+  const reasons: string[] = [];
+  reasons.push(snapshot.breakoutUp ? 'BREAKOUT_UP' : 'NO_BREAKOUT_UP');
+  reasons.push(snapshot.returnPct >= config.minReturnPct ? 'RETURN_OK' : 'RETURN_TOO_LOW');
+  reasons.push(snapshot.rangePct >= config.minRangePct ? 'RANGE_OK' : 'RANGE_TOO_LOW');
+  reasons.push(snapshot.bodyPct >= config.minBodyPct ? 'BODY_OK' : 'BODY_TOO_SMALL');
+  reasons.push(snapshot.wickToBodyRatio <= config.maxWickToBodyRatio ? 'WICK_OK' : 'WICK_TOO_HIGH');
+  return reasons;
+}
+
+function shortSetupReasonCodes(snapshot: CandleFeatureSnapshot, config: StrategyConfig): string[] {
+  const reasons: string[] = [];
+  reasons.push(snapshot.breakoutDown ? 'BREAKOUT_DOWN' : 'NO_BREAKOUT_DOWN');
+  reasons.push(snapshot.returnPct <= -config.minReturnPct ? 'RETURN_OK' : 'RETURN_TOO_HIGH');
+  reasons.push(snapshot.rangePct >= config.minRangePct ? 'RANGE_OK' : 'RANGE_TOO_LOW');
+  reasons.push(snapshot.bodyPct >= config.minBodyPct ? 'BODY_OK' : 'BODY_TOO_SMALL');
+  reasons.push(snapshot.wickToBodyRatio <= config.maxWickToBodyRatio ? 'WICK_OK' : 'WICK_TOO_HIGH');
+  return reasons;
+}
+
 function computeStrength(snapshot: CandleFeatureSnapshot): number {
   return roundTo(snapshot.momentumScore, 6);
+}
+
+function midpointOfCandle(candle: Candle): number {
+  return candle.low + (candle.high - candle.low) / 2;
+}
+
+function evaluatePullbackLong(
+  snapshot: CandleFeatureSnapshot,
+  breakoutCandle: Candle,
+): boolean {
+  return snapshot.candle.close <= breakoutCandle.close && snapshot.candle.close > midpointOfCandle(breakoutCandle);
+}
+
+function evaluatePullbackShort(
+  snapshot: CandleFeatureSnapshot,
+  breakoutCandle: Candle,
+): boolean {
+  return snapshot.candle.close >= breakoutCandle.close && snapshot.candle.close < midpointOfCandle(breakoutCandle);
+}
+
+function createDecision(
+  shouldEnter: boolean,
+  direction: StrategyDecision['direction'],
+  reasonCodes: string[],
+  strength: number,
+  expectedHoldCandles: number,
+): StrategyDecision {
+  return {
+    shouldEnter,
+    direction,
+    reasonCodes,
+    strength,
+    expectedHoldCandles,
+  };
+}
+
+function directBreakoutLongReasonCodes(): string[] {
+  return ['direct_breakout_entry_long'];
+}
+
+function directBreakoutShortReasonCodes(): string[] {
+  return ['direct_breakout_entry_short'];
 }
 
 export function evaluateCandle5mStrategy(
   snapshot: CandleFeatureSnapshot,
   config: StrategyConfig,
-): StrategyDecision {
-  if (longSatisfied(snapshot, config)) {
+  state: Candle5mStrategyState = createEmptyState(),
+): Candle5mStrategyStep {
+  const strength = computeStrength(snapshot);
+
+  if (state.waitingForPullback) {
+    const breakoutCandle = state.waitingForPullback.breakoutCandle;
+    if (state.waitingForPullback.status === 'waiting_for_pullback_long') {
+      if (evaluatePullbackLong(snapshot, breakoutCandle)) {
+        return {
+          decision: createDecision(
+            true,
+            'LONG',
+            ['pullback_entry_long'],
+            strength,
+            config.holdCandles,
+          ),
+          nextState: createEmptyState(),
+        };
+      }
+    } else if (evaluatePullbackShort(snapshot, breakoutCandle)) {
+      return {
+        decision: createDecision(
+          true,
+          'SHORT',
+          ['pullback_entry_short'],
+          strength,
+          config.holdCandles,
+        ),
+        nextState: createEmptyState(),
+      };
+    }
+
     return {
-      shouldEnter: true,
-      direction: 'LONG',
-      reasonCodes: evaluateLong(snapshot, config),
-      strength: computeStrength(snapshot),
-      expectedHoldCandles: config.holdCandles,
+      decision: createDecision(
+        false,
+        null,
+        ['pullback_failed'],
+        strength,
+        config.holdCandles,
+      ),
+      nextState: createEmptyState(),
     };
   }
 
-  if (shortSatisfied(snapshot, config)) {
+  if (evaluateLongSetup(snapshot, config)) {
+    if (!config.enableLongEntries) {
+      return {
+        decision: createDecision(
+          false,
+          null,
+          ['long_entries_disabled'],
+          strength,
+          config.holdCandles,
+        ),
+        nextState: createEmptyState(),
+      };
+    }
+
+    if (config.enableDirectBreakoutEntry) {
+      return {
+        decision: createDecision(
+          true,
+          'LONG',
+          directBreakoutLongReasonCodes(),
+          strength,
+          config.holdCandles,
+        ),
+        nextState: createEmptyState(),
+      };
+    }
+
     return {
-      shouldEnter: true,
-      direction: 'SHORT',
-      reasonCodes: evaluateShort(snapshot, config),
-      strength: computeStrength(snapshot),
-      expectedHoldCandles: config.holdCandles,
+      decision: createDecision(
+        false,
+        null,
+        ['waiting_pullback'],
+        strength,
+        config.holdCandles,
+      ),
+      nextState: {
+        waitingForPullback: {
+          status: 'waiting_for_pullback_long',
+          breakoutCandle: snapshot.candle,
+        },
+      },
     };
   }
 
-  const longReasons = evaluateLong(snapshot, config);
-  const shortReasons = evaluateShort(snapshot, config);
+  if (evaluateShortSetup(snapshot, config)) {
+    if (!config.enableShortEntries) {
+      return {
+        decision: createDecision(
+          false,
+          null,
+          ['short_entries_disabled'],
+          strength,
+          config.holdCandles,
+        ),
+        nextState: createEmptyState(),
+      };
+    }
+
+    if (config.enableDirectBreakoutEntry) {
+      return {
+        decision: createDecision(
+          true,
+          'SHORT',
+          directBreakoutShortReasonCodes(),
+          strength,
+          config.holdCandles,
+        ),
+        nextState: createEmptyState(),
+      };
+    }
+
+    return {
+      decision: createDecision(
+        false,
+        null,
+        ['waiting_pullback'],
+        strength,
+        config.holdCandles,
+      ),
+      nextState: {
+        waitingForPullback: {
+          status: 'waiting_for_pullback_short',
+          breakoutCandle: snapshot.candle,
+        },
+      },
+    };
+  }
 
   return {
-    shouldEnter: false,
-    direction: null,
-    reasonCodes: [...longReasons, ...shortReasons],
-    strength: computeStrength(snapshot),
-    expectedHoldCandles: config.holdCandles,
+    decision: createDecision(
+      false,
+      null,
+      [...longSetupReasonCodes(snapshot, config), ...shortSetupReasonCodes(snapshot, config)],
+      strength,
+      config.holdCandles,
+    ),
+    nextState: createEmptyState(),
   };
 }

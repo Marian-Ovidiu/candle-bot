@@ -13,6 +13,9 @@ export interface StrategyFeatureConfig {
 
 export interface StrategyConfig extends StrategyFeatureConfig {
   holdCandles: number;
+  enableDirectBreakoutEntry: boolean;
+  enableLongEntries: boolean;
+  enableShortEntries: boolean;
 }
 
 export interface CandleFeatureSnapshot {
@@ -39,4 +42,20 @@ export interface StrategyDecision {
   reasonCodes: string[];
   strength: number;
   expectedHoldCandles: number;
+}
+
+export type Candle5mPullbackStatus =
+  | 'waiting_for_pullback_long'
+  | 'waiting_for_pullback_short';
+
+export interface Candle5mStrategyState {
+  waitingForPullback: {
+    status: Candle5mPullbackStatus;
+    breakoutCandle: Candle;
+  } | null;
+}
+
+export interface Candle5mStrategyStep {
+  decision: StrategyDecision;
+  nextState: Candle5mStrategyState;
 }
