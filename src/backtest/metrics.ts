@@ -6,11 +6,14 @@ export interface BacktestTrade {
   direction: 'LONG' | 'SHORT';
   entryPrice: number;
   exitPrice: number;
+  holdCandles: number;
+  entryStrengthPct: number;
   pnlPct: number;
   pnlNetPct: number;
   reason: 'TP' | 'SL' | 'TIMEOUT' | 'break_even_exit' | 'trailing_exit';
   closeReason: 'TP' | 'SL' | 'TIMEOUT' | 'break_even_exit' | 'trailing_exit';
   maxFavorableExcursionPct: number;
+  maxNetFavorableExcursionPct: number;
   maxAdverseExcursionPct: number;
   bestPriceDuringHold: number;
   worstPriceDuringHold: number;
@@ -32,8 +35,12 @@ export interface BacktestMetrics {
   avgWinPct: number;
   avgLossPct: number;
   avgMfePct: number;
+  avgGrossMfePct: number;
+  avgNetMfePct: number;
   avgMaePct: number;
   maxMfePct: number;
+  maxGrossMfePct: number;
+  maxNetMfePct: number;
   maxMaePct: number;
   tradesThatTouchedHalfTp: number;
   tradesThatTouchedHalfSl: number;
@@ -52,8 +59,12 @@ export function computeBacktestMetrics(trades: BacktestTrade[]): BacktestMetrics
       avgWinPct: 0,
       avgLossPct: 0,
       avgMfePct: 0,
+      avgGrossMfePct: 0,
+      avgNetMfePct: 0,
       avgMaePct: 0,
       maxMfePct: 0,
+      maxGrossMfePct: 0,
+      maxNetMfePct: 0,
       maxMaePct: 0,
       tradesThatTouchedHalfTp: 0,
       tradesThatTouchedHalfSl: 0,
@@ -81,11 +92,14 @@ export function computeBacktestMetrics(trades: BacktestTrade[]): BacktestMetrics
   let equity = 1;
   let peak = 1;
   let maxDrawdown = 0;
-  const mfeValues = trades.map((trade) => trade.maxFavorableExcursionPct);
+  const grossMfeValues = trades.map((trade) => trade.maxFavorableExcursionPct);
+  const netMfeValues = trades.map((trade) => trade.maxNetFavorableExcursionPct);
   const maeValues = trades.map((trade) => trade.maxAdverseExcursionPct);
-  const avgMfePct = mfeValues.reduce((sum, value) => sum + value, 0) / totalTrades;
+  const avgGrossMfePct = grossMfeValues.reduce((sum, value) => sum + value, 0) / totalTrades;
+  const avgNetMfePct = netMfeValues.reduce((sum, value) => sum + value, 0) / totalTrades;
   const avgMaePct = maeValues.reduce((sum, value) => sum + value, 0) / totalTrades;
-  const maxMfePct = Math.max(...mfeValues);
+  const maxGrossMfePct = Math.max(...grossMfeValues);
+  const maxNetMfePct = Math.max(...netMfeValues);
   const maxMaePct = Math.max(...maeValues);
   const tradesThatTouchedHalfTp = trades.filter((trade) => trade.touchedHalfTp).length;
   const tradesThatTouchedHalfSl = trades.filter((trade) => trade.touchedHalfSl).length;
@@ -111,9 +125,13 @@ export function computeBacktestMetrics(trades: BacktestTrade[]): BacktestMetrics
     profitFactor: roundTo(profitFactor, 8),
     avgWinPct: roundTo(avgWinPct, 8),
     avgLossPct: roundTo(avgLossPct, 8),
-    avgMfePct: roundTo(avgMfePct, 8),
+    avgMfePct: roundTo(avgGrossMfePct, 8),
+    avgGrossMfePct: roundTo(avgGrossMfePct, 8),
+    avgNetMfePct: roundTo(avgNetMfePct, 8),
     avgMaePct: roundTo(avgMaePct, 8),
-    maxMfePct: roundTo(maxMfePct, 8),
+    maxMfePct: roundTo(maxGrossMfePct, 8),
+    maxGrossMfePct: roundTo(maxGrossMfePct, 8),
+    maxNetMfePct: roundTo(maxNetMfePct, 8),
     maxMaePct: roundTo(maxMaePct, 8),
     tradesThatTouchedHalfTp,
     tradesThatTouchedHalfSl,

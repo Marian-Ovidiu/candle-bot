@@ -12,6 +12,8 @@ const config: StrategyConfig = {
   maxWickToBodyRatio: 2,
   holdCandles: 3,
   enableDirectBreakoutEntry: true,
+  enableLongEntries: true,
+  enableShortEntries: true,
 };
 
 function makeSnapshot(

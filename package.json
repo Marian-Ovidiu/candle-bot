@@ -10,6 +10,8 @@
     "test:watch": "vitest",
     "backtest": "npm run build && node -r dotenv/config dist/backtest/runBacktest.js",
     "backtest:dev": "tsx -r dotenv/config src/backtest/runBacktest.ts",
+    "backtest:binance": "tsx -r dotenv/config src/backtest/runBacktest.ts",
+    "import:binance": "tsx src/data/binanceHistoricalImporter.ts",
     "convert": "tsx convertSpikeData.ts",
     "collect": "tsx data/collect/coinbaseCollector.ts"
   },

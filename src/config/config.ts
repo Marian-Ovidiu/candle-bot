@@ -14,6 +14,8 @@ export interface AppConfig {
   initialEquity: number;
   positionNotional: number;
   backtestInputFile: string;
+  enableHourFilter: boolean;
+  allowedEntryHoursUtc: number[];
   enableTrendFilter: boolean;
   trendTimeframeMultiplier: number;
   trendLookbackCandles: number;
@@ -32,7 +34,22 @@ export interface AppConfig {
   trailingTriggerPct: number;
   trailingDropPct: number;
   enableDirectBreakoutEntry: boolean;
+  enableImpulseConfirmationEntry: boolean;
+  enableImpulseFadeEntry: boolean;
+  enableFollowThroughConfirmation: boolean;
+  impulseMinReturnPct: number;
+  impulseMinRangePct: number;
+  impulseMinBodyToRangeRatio: number;
+  impulseMaxWickToBodyRatio: number;
+  impulseMaxReturnPct: number;
+  confirmationMinReturnPct: number;
+  confirmationMinBodyToImpulseBodyRatio: number;
+  confirmationMaxWickToBodyRatio: number;
+  recentRangeLookbackCandles: number;
+  minRecentRangeAvgPct: number;
+  minVolatilityPct: number;
   maxCandleGapMultiplier: number;
+  maxHoldCandles: number;
   enableLongEntries: boolean;
   enableShortEntries: boolean;
 }
@@ -53,6 +70,8 @@ const DEFAULT_CONFIG: AppConfig = {
   initialEquity: 1_000,
   positionNotional: 50,
   backtestInputFile: '',
+  enableHourFilter: false,
+  allowedEntryHoursUtc: [],
   enableTrendFilter: false,
   trendTimeframeMultiplier: 3,
   trendLookbackCandles: 3,
@@ -71,7 +90,22 @@ const DEFAULT_CONFIG: AppConfig = {
   trailingTriggerPct: 0.002,
   trailingDropPct: 0.0006,
   enableDirectBreakoutEntry: true,
+  enableImpulseConfirmationEntry: false,
+  enableImpulseFadeEntry: false,
+  enableFollowThroughConfirmation: false,
+  impulseMinReturnPct: 0.0012,
+  impulseMinRangePct: 0.0018,
+  impulseMinBodyToRangeRatio: 0.55,
+  impulseMaxWickToBodyRatio: 1.5,
+  impulseMaxReturnPct: Number.POSITIVE_INFINITY,
+  confirmationMinReturnPct: 0.0004,
+  confirmationMinBodyToImpulseBodyRatio: 0,
+  confirmationMaxWickToBodyRatio: Number.POSITIVE_INFINITY,
+  recentRangeLookbackCandles: 6,
+  minRecentRangeAvgPct: 0.0012,
+  minVolatilityPct: 0,
   maxCandleGapMultiplier: 3,
+  maxHoldCandles: Number.POSITIVE_INFINITY,
   enableLongEntries: true,
   enableShortEntries: true,
 };
@@ -125,6 +159,35 @@ function readBoolean(
   throw new Error(`Invalid boolean config value for ${key}: ${raw}`);
 }
 
+function readNumberArray(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number[],
+): number[] {
+  const raw = env[key];
+  if (raw === undefined || raw.trim() === '') {
+    return fallback;
+  }
+
+  const trimmed = raw.trim();
+  const parts = trimmed.startsWith('[')
+    ? JSON.parse(trimmed) as unknown
+    : trimmed.split(',');
+
+  if (!Array.isArray(parts)) {
+    throw new Error(`Invalid array config value for ${key}: ${raw}`);
+  }
+
+  return parts.map((part) => {
+    const parsed = Number(part);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 23) {
+      throw new Error(`Invalid hour in ${key}: ${String(part)}`);
+    }
+
+    return parsed;
+  });
+}
+
 export function readAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     candleIntervalMs: readNumber(env, 'CANDLE_INTERVAL_MS', DEFAULT_CONFIG.candleIntervalMs),
@@ -157,6 +220,16 @@ export function readAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env,
       'BACKTEST_INPUT_FILE',
       DEFAULT_CONFIG.backtestInputFile,
+    ),
+    enableHourFilter: readBoolean(
+      env,
+      'ENABLE_HOUR_FILTER',
+      DEFAULT_CONFIG.enableHourFilter,
+    ),
+    allowedEntryHoursUtc: readNumberArray(
+      env,
+      'ALLOWED_ENTRY_HOURS_UTC',
+      DEFAULT_CONFIG.allowedEntryHoursUtc,
     ),
     enableTrendFilter: readBoolean(
       env,
@@ -248,10 +321,85 @@ export function readAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       'ENABLE_DIRECT_BREAKOUT_ENTRY',
       DEFAULT_CONFIG.enableDirectBreakoutEntry,
     ),
+    enableImpulseConfirmationEntry: readBoolean(
+      env,
+      'ENABLE_IMPULSE_CONFIRMATION_ENTRY',
+      DEFAULT_CONFIG.enableImpulseConfirmationEntry,
+    ),
+    enableImpulseFadeEntry: readBoolean(
+      env,
+      'ENABLE_IMPULSE_FADE_ENTRY',
+      DEFAULT_CONFIG.enableImpulseFadeEntry,
+    ),
+    enableFollowThroughConfirmation: readBoolean(
+      env,
+      'ENABLE_FOLLOW_THROUGH_CONFIRMATION',
+      DEFAULT_CONFIG.enableFollowThroughConfirmation,
+    ),
+    impulseMinReturnPct: readNumber(
+      env,
+      'IMPULSE_MIN_RETURN_PCT',
+      DEFAULT_CONFIG.impulseMinReturnPct,
+    ),
+    impulseMinRangePct: readNumber(
+      env,
+      'IMPULSE_MIN_RANGE_PCT',
+      DEFAULT_CONFIG.impulseMinRangePct,
+    ),
+    impulseMinBodyToRangeRatio: readNumber(
+      env,
+      'IMPULSE_MIN_BODY_TO_RANGE_RATIO',
+      DEFAULT_CONFIG.impulseMinBodyToRangeRatio,
+    ),
+    impulseMaxWickToBodyRatio: readNumber(
+      env,
+      'IMPULSE_MAX_WICK_TO_BODY_RATIO',
+      DEFAULT_CONFIG.impulseMaxWickToBodyRatio,
+    ),
+    impulseMaxReturnPct: readNumber(
+      env,
+      'IMPULSE_MAX_RETURN_PCT',
+      DEFAULT_CONFIG.impulseMaxReturnPct,
+    ),
+    confirmationMinReturnPct: readNumber(
+      env,
+      'CONFIRMATION_MIN_RETURN_PCT',
+      DEFAULT_CONFIG.confirmationMinReturnPct,
+    ),
+    confirmationMinBodyToImpulseBodyRatio: readNumber(
+      env,
+      'CONFIRMATION_MIN_BODY_TO_IMPULSE_BODY_RATIO',
+      DEFAULT_CONFIG.confirmationMinBodyToImpulseBodyRatio,
+    ),
+    confirmationMaxWickToBodyRatio: readNumber(
+      env,
+      'CONFIRMATION_MAX_WICK_TO_BODY_RATIO',
+      DEFAULT_CONFIG.confirmationMaxWickToBodyRatio,
+    ),
+    recentRangeLookbackCandles: readNumber(
+      env,
+      'RECENT_RANGE_LOOKBACK_CANDLES',
+      DEFAULT_CONFIG.recentRangeLookbackCandles,
+    ),
+    minRecentRangeAvgPct: readNumber(
+      env,
+      'MIN_RECENT_RANGE_AVG_PCT',
+      DEFAULT_CONFIG.minRecentRangeAvgPct,
+    ),
+    minVolatilityPct: readNumber(
+      env,
+      'MIN_VOLATILITY_PCT',
+      DEFAULT_CONFIG.minVolatilityPct,
+    ),
     maxCandleGapMultiplier: readNumber(
       env,
       'MAX_CANDLE_GAP_MULTIPLIER',
       DEFAULT_CONFIG.maxCandleGapMultiplier,
+    ),
+    maxHoldCandles: readNumber(
+      env,
+      'MAX_HOLD_CANDLES',
+      DEFAULT_CONFIG.maxHoldCandles,
     ),
     enableLongEntries: readBoolean(
       env,
