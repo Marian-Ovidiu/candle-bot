@@ -104,6 +104,26 @@ function buildTrailingExitScenario(startTimeMs: number): { rows: string[] } {
   return { rows };
 }
 
+function buildSoftExitTriggerWithSlScenario(startTimeMs: number): { rows: string[] } {
+  const candles: CandleSpec[] = [
+    { open: 100, high: 100.5, low: 99.5, close: 100 },
+    { open: 100, high: 105, low: 99, close: 104.5 },
+    { open: 104.5, high: 105, low: 102.0, close: 103.0 },
+    { open: 103.0, high: 104.0, low: 102.8, close: 103.5 },
+  ];
+
+  const rows: string[] = [];
+  candles.forEach((candle, index) => {
+    const bucketStart = startTimeMs + index * 300_000;
+    rows.push(JSON.stringify({ timestampMs: bucketStart, price: candle.open }));
+    rows.push(JSON.stringify({ timestampMs: bucketStart + 60_000, price: candle.high }));
+    rows.push(JSON.stringify({ timestampMs: bucketStart + 120_000, price: candle.low }));
+    rows.push(JSON.stringify({ timestampMs: bucketStart + 240_000, price: candle.close }));
+  });
+
+  return { rows };
+}
+
 function buildGapScenario(startTimeMs: number): { rows: string[] } {
   const candles: Array<{ startOffsetMs: number; open: number; high: number; low: number; close: number }> = [
     { startOffsetMs: 0, open: 100, high: 101, low: 99, close: 100.5 },
@@ -341,8 +361,11 @@ describe('runBacktest diagnostics and filters', () => {
     });
   });
 
-  it('closes a trade with break even exit when the buffer is touched after activation', async () => {
-    const scenario = buildBreakEvenExitScenario(0);
+  it('does not close a break even exit until the candle after activation', async () => {
+    const startTimeMs = 0;
+    const triggerCandleEndTimeMs = startTimeMs + 3 * 300_000;
+    const executableCandleEndTimeMs = startTimeMs + 4 * 300_000;
+    const scenario = buildBreakEvenExitScenario(startTimeMs);
     const filePath = await writeScenarioFile(scenario.rows);
     const result = await runBacktest(
       buildConfig({
@@ -362,12 +385,18 @@ describe('runBacktest diagnostics and filters', () => {
     );
 
     expect(result.trades.length).toBeGreaterThan(0);
-    expect(result.trades.some((trade) => trade.closeReason === 'break_even_exit')).toBe(true);
+    const trade = result.trades.find((item) => item.closeReason === 'break_even_exit');
+    expect(trade).toBeDefined();
+    expect(trade?.exitTimeMs).not.toBe(triggerCandleEndTimeMs);
+    expect(trade?.exitTimeMs).toBe(executableCandleEndTimeMs);
     expect(result.summary.diagnostics.exits.closedBreakEven).toBeGreaterThan(0);
   });
 
-  it('closes a trade with trailing exit when the giveback threshold is hit', async () => {
-    const scenario = buildTrailingExitScenario(0);
+  it('does not close a trailing exit until the candle after activation', async () => {
+    const startTimeMs = 0;
+    const triggerCandleEndTimeMs = startTimeMs + 3 * 300_000;
+    const executableCandleEndTimeMs = startTimeMs + 4 * 300_000;
+    const scenario = buildTrailingExitScenario(startTimeMs);
     const filePath = await writeScenarioFile(scenario.rows);
     const result = await runBacktest(
       buildConfig({
@@ -388,8 +417,44 @@ describe('runBacktest diagnostics and filters', () => {
     );
 
     expect(result.trades.length).toBeGreaterThan(0);
-    expect(result.trades.some((trade) => trade.closeReason === 'trailing_exit')).toBe(true);
+    const trade = result.trades.find((item) => item.closeReason === 'trailing_exit');
+    expect(trade).toBeDefined();
+    expect(trade?.exitTimeMs).not.toBe(triggerCandleEndTimeMs);
+    expect(trade?.exitTimeMs).toBe(executableCandleEndTimeMs);
     expect(result.summary.diagnostics.exits.closedTrailing).toBeGreaterThan(0);
+  });
+
+  it('keeps stop loss executable on the same candle as a soft exit trigger', async () => {
+    const startTimeMs = 0;
+    const triggerCandleEndTimeMs = startTimeMs + 3 * 300_000;
+    const scenario = buildSoftExitTriggerWithSlScenario(startTimeMs);
+    const filePath = await writeScenarioFile(scenario.rows);
+    const result = await runBacktest(
+      buildConfig({
+        backtestInputFile: filePath,
+        lookbackCandles: 1,
+        breakoutLookbackCandles: 1,
+        enableTrendFilter: false,
+        enableMinEdgeFilter: false,
+        enableSampleCountFilter: false,
+        holdCandles: 5,
+        takeProfitPct: 0.02,
+        stopLossPct: 0.02,
+        enableBreakEvenExit: true,
+        breakEvenTriggerPct: 0.001,
+        breakEvenExitBufferPct: 0.0001,
+        enableTrailingExit: true,
+        trailingTriggerPct: 0.002,
+        trailingDropPct: 0.0006,
+      }),
+    );
+
+    expect(result.trades.length).toBeGreaterThan(0);
+    expect(result.trades[0]).toMatchObject({
+      closeReason: 'SL',
+      exitTimeMs: triggerCandleEndTimeMs,
+    });
+    expect(result.summary.diagnostics.exits.closedSl).toBeGreaterThan(0);
   });
 
   it('reports sample filter rejections', async () => {

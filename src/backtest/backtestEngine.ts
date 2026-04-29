@@ -28,6 +28,10 @@ interface OpenTrade {
   touchedHalfSl: boolean;
   breakEvenActivated: boolean;
   trailingActivated: boolean;
+  breakEvenArmed: boolean;
+  breakEvenArmedFromTimeMs: number | null;
+  trailingArmed: boolean;
+  trailingArmedFromTimeMs: number | null;
 }
 
 type TrendBias = 'UP' | 'DOWN' | 'NEUTRAL';
@@ -161,6 +165,8 @@ function toStrategyConfig(config: AppConfig): StrategyConfig {
     maxWickToBodyRatio: config.maxWickToBodyRatio,
     holdCandles: config.holdCandles,
     enableDirectBreakoutEntry: config.enableDirectBreakoutEntry,
+    enableLongEntries: config.enableLongEntries,
+    enableShortEntries: config.enableShortEntries,
   };
 }
 
@@ -507,20 +513,6 @@ function updateTradeExcursions(
     if (candle.low <= entryPrice * halfSlMultiplier) {
       trade.touchedHalfSl = true;
     }
-    if (
-      config.enableBreakEvenExit &&
-      !trade.breakEvenActivated &&
-      trade.maxFavorableExcursionPct >= config.breakEvenTriggerPct
-    ) {
-      trade.breakEvenActivated = true;
-    }
-    if (
-      config.enableTrailingExit &&
-      !trade.trailingActivated &&
-      trade.maxFavorableExcursionPct >= config.trailingTriggerPct
-    ) {
-      trade.trailingActivated = true;
-    }
     return;
   }
 
@@ -540,19 +532,31 @@ function updateTradeExcursions(
   if (candle.high >= entryPrice * (1 + config.stopLossPct / 2)) {
     trade.touchedHalfSl = true;
   }
+}
+
+function armSoftExitsForNextCandle(
+  trade: OpenTrade,
+  candle: Candle,
+  config: AppConfig,
+): void {
   if (
     config.enableBreakEvenExit &&
-    !trade.breakEvenActivated &&
+    !trade.breakEvenArmed &&
     trade.maxFavorableExcursionPct >= config.breakEvenTriggerPct
   ) {
     trade.breakEvenActivated = true;
+    trade.breakEvenArmed = true;
+    trade.breakEvenArmedFromTimeMs = candle.endTimeMs;
   }
+
   if (
     config.enableTrailingExit &&
-    !trade.trailingActivated &&
+    !trade.trailingArmed &&
     trade.maxFavorableExcursionPct >= config.trailingTriggerPct
   ) {
     trade.trailingActivated = true;
+    trade.trailingArmed = true;
+    trade.trailingArmedFromTimeMs = candle.endTimeMs;
   }
 }
 
@@ -623,33 +627,19 @@ function closeOpenTrade(
   };
 }
 
-function evaluateExitForCandle(
+function evaluateHardExitForCandle(
   trade: OpenTrade,
   candle: Candle,
   config: AppConfig,
-): { shouldExit: boolean; reason?: 'TP' | 'SL' | 'break_even_exit' | 'trailing_exit'; exitPrice?: number } {
+): { shouldExit: boolean; reason?: 'TP' | 'SL'; exitPrice?: number } {
   const takeProfitPct = config.takeProfitPct;
   const stopLossPct = config.stopLossPct;
 
   if (trade.direction === 'LONG') {
     const takeProfitPrice = trade.entryPrice * (1 + takeProfitPct);
     const stopLossPrice = trade.entryPrice * (1 - stopLossPct);
-    const breakEvenStopPrice = config.enableBreakEvenExit && trade.breakEvenActivated
-      ? trade.entryPrice * (1 + config.breakEvenExitBufferPct)
-      : stopLossPrice;
-    const trailingStopPrice = config.enableTrailingExit && trade.trailingActivated
-      ? trade.bestPriceDuringHold * (1 - config.trailingDropPct)
-      : stopLossPrice;
 
     if (candle.low <= stopLossPrice) {
-      if (config.enableTrailingExit && trade.trailingActivated && candle.low <= trailingStopPrice) {
-        return { shouldExit: true, reason: 'trailing_exit', exitPrice: trailingStopPrice };
-      }
-
-      if (config.enableBreakEvenExit && trade.breakEvenActivated && candle.low <= breakEvenStopPrice) {
-        return { shouldExit: true, reason: 'break_even_exit', exitPrice: breakEvenStopPrice };
-      }
-
       return { shouldExit: true, reason: 'SL', exitPrice: stopLossPrice };
     }
 
@@ -657,35 +647,13 @@ function evaluateExitForCandle(
       return { shouldExit: true, reason: 'TP', exitPrice: takeProfitPrice };
     }
 
-    if (config.enableTrailingExit && trade.trailingActivated && candle.low <= trailingStopPrice) {
-      return { shouldExit: true, reason: 'trailing_exit', exitPrice: trailingStopPrice };
-    }
-
-    if (config.enableBreakEvenExit && trade.breakEvenActivated && candle.low <= breakEvenStopPrice) {
-      return { shouldExit: true, reason: 'break_even_exit', exitPrice: breakEvenStopPrice };
-    }
-
     return { shouldExit: false };
   }
 
   const takeProfitPrice = trade.entryPrice * (1 - takeProfitPct);
   const stopLossPrice = trade.entryPrice * (1 + stopLossPct);
-  const breakEvenStopPrice = config.enableBreakEvenExit && trade.breakEvenActivated
-    ? trade.entryPrice * (1 - config.breakEvenExitBufferPct)
-    : stopLossPrice;
-  const trailingStopPrice = config.enableTrailingExit && trade.trailingActivated
-    ? trade.bestPriceDuringHold * (1 + config.trailingDropPct)
-    : stopLossPrice;
 
   if (candle.high >= stopLossPrice) {
-    if (config.enableTrailingExit && trade.trailingActivated && candle.high >= trailingStopPrice) {
-      return { shouldExit: true, reason: 'trailing_exit', exitPrice: trailingStopPrice };
-    }
-
-    if (config.enableBreakEvenExit && trade.breakEvenActivated && candle.high >= breakEvenStopPrice) {
-      return { shouldExit: true, reason: 'break_even_exit', exitPrice: breakEvenStopPrice };
-    }
-
     return { shouldExit: true, reason: 'SL', exitPrice: stopLossPrice };
   }
 
@@ -693,11 +661,57 @@ function evaluateExitForCandle(
     return { shouldExit: true, reason: 'TP', exitPrice: takeProfitPrice };
   }
 
-  if (config.enableTrailingExit && trade.trailingActivated && candle.high >= trailingStopPrice) {
+  return { shouldExit: false };
+}
+
+function evaluateArmedSoftExitForCandle(
+  trade: OpenTrade,
+  candle: Candle,
+  config: AppConfig,
+): { shouldExit: boolean; reason?: 'break_even_exit' | 'trailing_exit'; exitPrice?: number } {
+  if (trade.direction === 'LONG') {
+    const breakEvenStopPrice = trade.entryPrice * (1 + config.breakEvenExitBufferPct);
+    const trailingStopPrice = trade.bestPriceDuringHold * (1 - config.trailingDropPct);
+    const canExecuteBreakEven =
+      config.enableBreakEvenExit &&
+      trade.breakEvenArmed &&
+      trade.breakEvenArmedFromTimeMs !== null &&
+      trade.breakEvenArmedFromTimeMs < candle.endTimeMs;
+    const canExecuteTrailing =
+      config.enableTrailingExit &&
+      trade.trailingArmed &&
+      trade.trailingArmedFromTimeMs !== null &&
+      trade.trailingArmedFromTimeMs < candle.endTimeMs;
+
+    if (canExecuteTrailing && candle.low <= trailingStopPrice) {
+      return { shouldExit: true, reason: 'trailing_exit', exitPrice: trailingStopPrice };
+    }
+
+    if (canExecuteBreakEven && candle.low <= breakEvenStopPrice) {
+      return { shouldExit: true, reason: 'break_even_exit', exitPrice: breakEvenStopPrice };
+    }
+
+    return { shouldExit: false };
+  }
+
+  const breakEvenStopPrice = trade.entryPrice * (1 - config.breakEvenExitBufferPct);
+  const trailingStopPrice = trade.bestPriceDuringHold * (1 + config.trailingDropPct);
+  const canExecuteBreakEven =
+    config.enableBreakEvenExit &&
+    trade.breakEvenArmed &&
+    trade.breakEvenArmedFromTimeMs !== null &&
+    trade.breakEvenArmedFromTimeMs < candle.endTimeMs;
+  const canExecuteTrailing =
+    config.enableTrailingExit &&
+    trade.trailingArmed &&
+    trade.trailingArmedFromTimeMs !== null &&
+    trade.trailingArmedFromTimeMs < candle.endTimeMs;
+
+  if (canExecuteTrailing && candle.high >= trailingStopPrice) {
     return { shouldExit: true, reason: 'trailing_exit', exitPrice: trailingStopPrice };
   }
 
-  if (config.enableBreakEvenExit && trade.breakEvenActivated && candle.high >= breakEvenStopPrice) {
+  if (canExecuteBreakEven && candle.high >= breakEvenStopPrice) {
     return { shouldExit: true, reason: 'break_even_exit', exitPrice: breakEvenStopPrice };
   }
 
@@ -772,8 +786,14 @@ export async function runBacktest(
 
     if (openTrade) {
       openTrade.barsHeld += 1;
-      updateTradeExcursions(openTrade, candle, config);
-      const exitDecision = evaluateExitForCandle(openTrade, candle, config);
+      let exitDecision:
+        | ReturnType<typeof evaluateHardExitForCandle>
+        | ReturnType<typeof evaluateArmedSoftExitForCandle> =
+        evaluateHardExitForCandle(openTrade, candle, config);
+
+      if (!exitDecision.shouldExit) {
+        exitDecision = evaluateArmedSoftExitForCandle(openTrade, candle, config);
+      }
 
       if (exitDecision.shouldExit && exitDecision.reason && exitDecision.exitPrice !== undefined) {
         trades.push(
@@ -787,6 +807,9 @@ export async function runBacktest(
         );
         recordExitDiagnostics(diagnostics, 'TIMEOUT');
         openTrade = undefined;
+      } else {
+        updateTradeExcursions(openTrade, candle, config);
+        armSoftExitsForNextCandle(openTrade, candle, config);
       }
     }
 
@@ -886,6 +909,10 @@ export async function runBacktest(
         touchedHalfSl: false,
         breakEvenActivated: false,
         trailingActivated: false,
+        breakEvenArmed: false,
+        breakEvenArmedFromTimeMs: null,
+        trailingArmed: false,
+        trailingArmedFromTimeMs: null,
       };
       diagnostics.trades.opened += 1;
     }
