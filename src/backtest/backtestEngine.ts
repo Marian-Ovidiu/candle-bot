@@ -84,6 +84,8 @@ export interface BacktestDiagnostics {
   fadeLong: number;
   fadeShort: number;
   rejectedByHour: number;
+  rejectedByDirectionLongDisabled: number;
+  rejectedByDirectionShortDisabled: number;
   rejectedByImpulseTooStrong: number;
   rejectedByLowVolatility: number;
   rejectedByNoFollowThrough: number;
@@ -194,6 +196,8 @@ export interface BacktestSummary extends BacktestMetrics {
     minVolatilityPct: number;
     maxCandleGapMultiplier: number;
     maxHoldCandles: number;
+    enableLongEntries: boolean;
+    enableShortEntries: boolean;
   };
   diagnostics: BacktestDiagnostics;
   tradeAnalysis: TradeAnalysis;
@@ -204,6 +208,10 @@ export interface BacktestRunResult {
   outputDir: string;
   trades: BacktestTrade[];
   summary: BacktestSummary;
+}
+
+export interface BacktestRunOptions {
+  outputDir?: string;
 }
 
 function toStrategyConfig(config: AppConfig): StrategyConfig {
@@ -257,6 +265,8 @@ function createDiagnostics(config: AppConfig): BacktestDiagnostics {
     fadeLong: 0,
     fadeShort: 0,
     rejectedByHour: 0,
+    rejectedByDirectionLongDisabled: 0,
+    rejectedByDirectionShortDisabled: 0,
     rejectedByImpulseTooStrong: 0,
     rejectedByLowVolatility: 0,
     rejectedByNoFollowThrough: 0,
@@ -359,6 +369,8 @@ function createConfigSnapshot(config: AppConfig) {
     minVolatilityPct: config.minVolatilityPct,
     maxCandleGapMultiplier: config.maxCandleGapMultiplier,
     maxHoldCandles: config.maxHoldCandles,
+    enableLongEntries: config.enableLongEntries,
+    enableShortEntries: config.enableShortEntries,
   };
 }
 
@@ -1228,6 +1240,7 @@ function getLatestSnapshot(
 
 export async function runBacktest(
   config: AppConfig = appConfig,
+  options: BacktestRunOptions = {},
 ): Promise<BacktestRunResult> {
   if (config.backtestInputFile.trim() === '') {
     throw new Error('BACKTEST_INPUT_FILE is required');
@@ -1243,7 +1256,7 @@ export async function runBacktest(
   const diagnostics = createDiagnostics(config);
   const trendState = createTrendAggregationState();
   const sessionId = createSessionId(marketData.startTimeMs ?? 0);
-  const outputDir = join('output', 'backtests', sessionId);
+  const outputDir = options.outputDir ?? join('output', 'backtests', sessionId);
   const configSnapshot = createConfigSnapshot(config);
   let previousClosedCandle: Candle | null = null;
   let pendingFollowThroughEntry: PendingFollowThroughEntry | null = null;
@@ -1377,6 +1390,20 @@ export async function runBacktest(
           ? getSignalCandidate(step, snapshot)
           : null;
       candidateNextState = step ? step.nextState : null;
+    }
+
+    if (!candidate && step?.decision.direction === 'LONG' && step.decision.reasonCodes.includes('direction_long_disabled')) {
+      diagnostics.rejectedByDirectionLongDisabled += 1;
+      diagnostics.candidateSignals.rejected += 1;
+      strategyState = createCandle5mStrategyState();
+      return;
+    }
+
+    if (!candidate && step?.decision.direction === 'SHORT' && step.decision.reasonCodes.includes('direction_short_disabled')) {
+      diagnostics.rejectedByDirectionShortDisabled += 1;
+      diagnostics.candidateSignals.rejected += 1;
+      strategyState = createCandle5mStrategyState();
+      return;
     }
 
     if (!candidate) {

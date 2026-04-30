@@ -238,4 +238,53 @@ describe('evaluateCandle5mStrategy', () => {
       expect.arrayContaining(['RANGE_TOO_LOW', 'BODY_TOO_SMALL', 'WICK_TOO_HIGH']),
     );
   });
+
+  it('rejects long setups with direction_long_disabled when longs are disabled', () => {
+    const directConfig: StrategyConfig = {
+      ...config,
+      enableDirectBreakoutEntry: true,
+      enableLongEntries: false,
+    };
+    const breakoutSnapshot = makeSnapshot(makeCandle(0, 100, 105, 95, 102), {
+      breakoutUp: true,
+      direction: 'up',
+    });
+
+    const step = evaluateCandle5mStrategy(
+      breakoutSnapshot,
+      directConfig,
+      createCandle5mStrategyState(),
+    );
+
+    expect(step.decision).toMatchObject({
+      shouldEnter: false,
+      direction: 'LONG',
+      reasonCodes: ['direction_long_disabled'],
+    });
+  });
+
+  it('rejects short setups with direction_short_disabled when shorts are disabled', () => {
+    const directConfig: StrategyConfig = {
+      ...config,
+      enableDirectBreakoutEntry: true,
+      enableShortEntries: false,
+    };
+    const breakoutSnapshot = makeSnapshot(makeCandle(0, 100, 104, 96, 98), {
+      returnPct: -0.02,
+      breakoutDown: true,
+      direction: 'down',
+    });
+
+    const step = evaluateCandle5mStrategy(
+      breakoutSnapshot,
+      directConfig,
+      createCandle5mStrategyState(),
+    );
+
+    expect(step.decision).toMatchObject({
+      shouldEnter: false,
+      direction: 'SHORT',
+      reasonCodes: ['direction_short_disabled'],
+    });
+  });
 });

@@ -11,6 +11,9 @@
     "backtest": "npm run build && node -r dotenv/config dist/backtest/runBacktest.js",
     "backtest:dev": "tsx -r dotenv/config src/backtest/runBacktest.ts",
     "backtest:binance": "tsx -r dotenv/config src/backtest/runBacktest.ts",
+    "experiment:suite": "tsx -r dotenv/config src/backtest/runExperimentSuite.ts",
+    "experiment:train": "tsx -r dotenv/config src/backtest/runTrainExplorationSuite.ts",
+    "split:train-test": "tsx -r dotenv/config src/data/splitTrainTest.ts",
     "import:binance": "tsx src/data/binanceHistoricalImporter.ts",
     "convert": "tsx convertSpikeData.ts",
     "collect": "tsx data/collect/coinbaseCollector.ts"

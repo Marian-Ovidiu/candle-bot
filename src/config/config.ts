@@ -159,6 +159,19 @@ function readBoolean(
   throw new Error(`Invalid boolean config value for ${key}: ${raw}`);
 }
 
+function readBooleanAlias(
+  env: NodeJS.ProcessEnv,
+  primaryKey: string,
+  legacyKey: string,
+  fallback: boolean,
+): boolean {
+  if (env[primaryKey] !== undefined && env[primaryKey]?.trim() !== '') {
+    return readBoolean(env, primaryKey, fallback);
+  }
+
+  return readBoolean(env, legacyKey, fallback);
+}
+
 function readNumberArray(
   env: NodeJS.ProcessEnv,
   key: string,
@@ -401,13 +414,15 @@ export function readAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       'MAX_HOLD_CANDLES',
       DEFAULT_CONFIG.maxHoldCandles,
     ),
-    enableLongEntries: readBoolean(
+    enableLongEntries: readBooleanAlias(
       env,
+      'ALLOW_LONG',
       'ENABLE_LONG_ENTRIES',
       DEFAULT_CONFIG.enableLongEntries,
     ),
-    enableShortEntries: readBoolean(
+    enableShortEntries: readBooleanAlias(
       env,
+      'ALLOW_SHORT',
       'ENABLE_SHORT_ENTRIES',
       DEFAULT_CONFIG.enableShortEntries,
     ),

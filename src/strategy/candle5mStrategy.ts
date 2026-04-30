@@ -115,6 +115,19 @@ export function evaluateCandle5mStrategy(
     const breakoutCandle = state.waitingForPullback.breakoutCandle;
     if (state.waitingForPullback.status === 'waiting_for_pullback_long') {
       if (evaluatePullbackLong(snapshot, breakoutCandle)) {
+        if (!config.enableLongEntries) {
+          return {
+            decision: createDecision(
+              false,
+              'LONG',
+              ['direction_long_disabled'],
+              strength,
+              config.holdCandles,
+            ),
+            nextState: createEmptyState(),
+          };
+        }
+
         return {
           decision: createDecision(
             true,
@@ -127,6 +140,19 @@ export function evaluateCandle5mStrategy(
         };
       }
     } else if (evaluatePullbackShort(snapshot, breakoutCandle)) {
+      if (!config.enableShortEntries) {
+        return {
+          decision: createDecision(
+            false,
+            'SHORT',
+            ['direction_short_disabled'],
+            strength,
+            config.holdCandles,
+          ),
+          nextState: createEmptyState(),
+        };
+      }
+
       return {
         decision: createDecision(
           true,
@@ -156,8 +182,8 @@ export function evaluateCandle5mStrategy(
       return {
         decision: createDecision(
           false,
-          null,
-          ['long_entries_disabled'],
+          'LONG',
+          ['direction_long_disabled'],
           strength,
           config.holdCandles,
         ),
@@ -200,8 +226,8 @@ export function evaluateCandle5mStrategy(
       return {
         decision: createDecision(
           false,
-          null,
-          ['short_entries_disabled'],
+          'SHORT',
+          ['direction_short_disabled'],
           strength,
           config.holdCandles,
         ),

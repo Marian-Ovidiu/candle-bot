@@ -197,4 +197,16 @@ describe('readAppConfig', () => {
     ]);
     expect(config.allowedEntryHoursUtc.every((hour) => typeof hour === 'number')).toBe(true);
   });
+
+  it('lets ALLOW_LONG and ALLOW_SHORT override legacy direction flags', () => {
+    const config = readAppConfig({
+      ALLOW_LONG: 'false',
+      ALLOW_SHORT: 'true',
+      ENABLE_LONG_ENTRIES: 'true',
+      ENABLE_SHORT_ENTRIES: 'false',
+    } as NodeJS.ProcessEnv);
+
+    expect(config.enableLongEntries).toBe(false);
+    expect(config.enableShortEntries).toBe(true);
+  });
 });
